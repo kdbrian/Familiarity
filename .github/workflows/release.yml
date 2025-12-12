@@ -1,0 +1,98 @@
+name: 'Multi-Flavor Release Note Generator'
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The release version tag (e.g., v1.2.3)'
+        required: true
+        type: string
+
+jobs:
+  generate_notes:
+    # Use a matrix strategy to run the job for each flavor
+    strategy:
+      matrix:
+        flavor: [dev, staging, prod]
+    
+    name: 'Generate Notes (${{ matrix.flavor }})'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # Only need read access to checkout and upload artifacts
+
+    steps:
+      - name: ⬇️ Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ⚙️ Determine Tag and Commit Range
+        id: vars
+        run: |
+          TAG_NAME=${{ github.event_name == 'push' && github.ref_name || github.event.inputs.version }}
+          FLAVOR=${{ matrix.flavor }}
+          
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "flavor=$FLAVOR" >> $GITHUB_OUTPUT
+          
+          PREV_TAG=$(git describe --tags --abbrev=0 "$TAG_NAME^" 2>/dev/null || echo "HEAD")
+          echo "prev_tag=$PREV_TAG" >> $GITHUB_OUTPUT
+        
+      - name: 📝 Get Commits Since Last Tag
+        id: commit_messages
+        run: |
+          COMMIT_LOG=$(git log ${{ steps.vars.outputs.prev_tag }}..${{ steps.vars.outputs.tag_name }} --pretty=format:'* %s%n  - %b%n---COMMIT_DELIMITER---')
+          
+          echo "raw_notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMIT_LOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: 🧠 Generate Release Notes with Gemini
+        id: ai_notes
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          RAW_NOTES: ${{ steps.commit_messages.outputs.raw_notes }}
+          FLAVOR: ${{ steps.vars.outputs.flavor }}
+          
+        run: |
+          SYSTEM_PROMPT="You are a professional technical writer and summarizer. Your task is to transform a list of raw commit messages for a software release into clear, concise, and natural language release notes formatted in **markdown**. The target audience for this **${{ env.FLAVOR }}** release is specific: If the flavor is 'prod', focus ONLY on new user features and fixes. Omit all technical jargon. If the flavor is 'staging' or 'dev', you may include notes on major internal changes, but keep the language accessible. Group changes logically under appropriate headers like '✨ New Features', '🐛 Bug Fixes', and '🧹 General Improvements'."
+
+          PAYLOAD='{
+            "contents": [
+              {
+                "role": "user",
+                "parts": [
+                  {"text": "Here are the raw commit messages to summarize:\n\n'"`echo "${{ env.RAW_NOTES }}" | tr -d '\n'`"'"}"
+                ]
+              }
+            ],
+            "config": {
+              "systemInstruction": "'"${SYSTEM_PROMPT}"'"
+            }
+          }'
+          
+          GENERATED_NOTES=$(curl -s -X POST \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${{ env.GEMINI_API_KEY }}" \
+            -H 'Content-Type: application/json' \
+            -d "$PAYLOAD" | jq -r '.candidates[0].content.parts[0].text')
+
+          if [ -z "$GENERATED_NOTES" ] || echo "$GENERATED_NOTES" | grep -q "error"; then
+            echo "::error::Gemini API call failed or returned empty notes for flavor ${{ env.FLAVOR }}."
+            exit 1
+          fi
+
+          # Save the generated notes to a file (required for artifact upload)
+          NOTES_FILE="release_notes_${{ matrix.flavor }}.md"
+          echo "$GENERATED_NOTES" > $NOTES_FILE
+          echo "SAVED_NOTES_FILE=$NOTES_FILE" >> $GITHUB_OUTPUT
+
+      - name: 💾 Upload Notes Artifact (${{ matrix.flavor }})
+        uses: actions/upload-artifact@v4
+        with:
+          # Each flavor gets its own artifact name for easy identification and download
+          name: release-notes-${{ matrix.flavor }}
+          path: release_notes_${{ matrix.flavor }}.md
+          retention-days: 7
