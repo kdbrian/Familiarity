@@ -1,4 +1,4 @@
-package com.kdbrian.templated
+package com.kdbrian.familiarity
 
 import android.app.Application
 import timber.log.Timber

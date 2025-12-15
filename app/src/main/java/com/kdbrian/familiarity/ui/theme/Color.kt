@@ -1,4 +1,4 @@
-package com.kdbrian.templated.ui.theme
+package com.kdbrian.familiarity.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

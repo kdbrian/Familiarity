@@ -4,14 +4,15 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     id("com.google.android.libraries.mapsplatform.secrets-gradle-plugin")
     id("com.google.gms.google-services")
+    kotlin("plugin.serialization") version "2.2.21"
 }
 
 android {
-    namespace = "com.kdbrian.templated"
+    namespace = "com.kdbrian.familiarity"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.kdbrian.templated"
+        applicationId = "com.kdbrian.familiarity"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
@@ -70,7 +71,7 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     testImplementation(libs.junit)
-    testImplementation(libs.junit.jupiter)
+    implementation(libs.junit.jupiter)
     testImplementation(libs.junit.jupiter)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -80,8 +81,6 @@ dependencies {
     debugImplementation(libs.androidx.ui.test.manifest)
 
 
-    //Timber
-    implementation(libs.timber)
 
     // koin
     implementation(platform(libs.koin.bom))
@@ -90,9 +89,12 @@ dependencies {
     implementation(libs.koin.compose)
     implementation(libs.koin.compose.viewmodel)
 
-    implementation(platform("com.google.firebase:firebase-bom:34.5.0"))
-    implementation("com.google.firebase:firebase-analytics")
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.analytics)
 
+    implementation(libs.kotlinx.serialization.json)
+    implementation(project(":core"))
+    implementation(project(":data"))
 
 
 }
